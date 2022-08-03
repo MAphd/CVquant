@@ -19,27 +19,21 @@ Files <- dir(paste0(Usedir,"/input/"), pattern = ".txt")
 Strainlist <- c("O4","O12","O4","O12","O4","O12")
 
 
-#CFU data
-#Manual input
-#Ensure strains etc
-#Format for each row is as follow: CFU1, CFU2, CFU3, CFU4, Strain, Plate#
-#It is important this format is followed as this is used to link CFU data to abs data. 
-CFU <- data.frame(rbind( c(8,8,8,5,"O4",1), 
-                         c(4,5,4,7,"O12",1),
-                         c(4,4,6,6,"O4",2),
-                         c(4,5,5,4,"O12",2),
-                         c(5,8,10,3,"O4",3),
-                         c(6,13,9,5,"O12",3)))
-colnames(CFU) <- c("x1","x2","x3","x4","Strain","Plate")
-
 
 #Convert to long frame data format:
 Biggerdata <- data.frame()
 for(j in 1:length(Files)){ 
   Background <- as.double()
-  Data <- data.frame(read_table2(paste0(Usedir,"/input/",Files[j]),
-                                 col_names = FALSE, locale = locale(decimal_mark = ",", grouping_mark = ".")))
-  
+  suppressMessages(Data <- data.frame(read_table2(paste0(Usedir,"/input/",Files[j]),
+                                                  col_names = FALSE, locale = locale(decimal_mark = ",", grouping_mark = "."))) )
+  #Spectramax plate layout conversion:
+  if(dim(Data)[2]>13){
+    
+    Data2 <- data.frame(matrix(c(colMeans(Data)[!is.na((colMeans(Data)))] ),nrow=12, ncol= 8) )
+    Data <- data.frame(t(Data2), X13 = 570)
+    
+    
+  }
   #Remove column specifying wavelength
   Data$X13 <- NULL
   
@@ -77,36 +71,46 @@ Biggerdata$Plate <- as.factor(Biggerdata$Plate)
 
 Biggerdata$Strain <- factor((Biggerdata$Strain), levels = levels(as.factor(Biggerdata$Strain)), labels = Strainlist )
 
-
-
-Biggerdata$CFU <- 0
-Biggerdata$CFU2 <- 0
-for(i in 1:dim(CFU)[1]){
+#Average technical replicates
+Biggestdata <- data.frame()
+for(i in 1:length(levels(Biggerdata$Plate))){
+  Temp1 <- subset(Biggerdata, Biggerdata$Plate == levels(Biggerdata$Plate)[i] )
   
-  temp <- CFU[i,]
+  for(j in 1:length(unique(Temp1$Strain))){
+    Temp2 <- subset(Temp1, Temp1$Strain == ( unique(Temp1$Strain)[j] ) ) 
+    for( z in 1:length(levels(Temp2$Biorep))){
+      Temp3 <- subset(Temp2, Temp2$Biorep == levels(Temp2$Biorep)[z] )
+      
+      Biggestdata <- rbind(Biggestdata, c(mean(Temp3$Abs),
+                                          as.character(Temp3$Strain)[1],
+                                          Temp3$Biorep[1],
+                                          Temp3$Plate[1]
+
+      ) )
+      
+    }
+    
+  }
   
-  Biggerdata$CFU[Biggerdata$Strain==temp$Strain & Biggerdata$Plate == temp$Plate] <- rep( (as.numeric(temp[1:4])), 1 , each = 6) 
-  Biggerdata$CFU2[Biggerdata$Strain==temp$Strain & Biggerdata$Plate == temp$Plate] <- mean((as.numeric(temp[1:4])))
+  
   
   
 }
 
+colnames(Biggestdata) <- c("Abs","Strain","Biorep","Plate")
+
+Biggestdata$Abs <- as.numeric(Biggestdata$Abs)
+Biggestdata$Strain <- as.factor(Biggestdata$Strain)
+Biggestdata$Biorep <- as.factor(Biggestdata$Biorep)
+Biggestdata$Plate <- as.factor(Biggestdata$Plate)
 
 
 
-
-#Normalize absorption for CFU
-
-Biggerdata$Absnorm <- Biggerdata$Abs/Biggerdata$CFU
-Biggerdata$Absnorm2 <- Biggerdata$Abs/Biggerdata$CFU2
+ggplot(Biggestdata, aes(x=(Strain), y = Abs )) +
+  geom_boxplot() +
+  geom_jitter(aes(colour = Strain))
 
 
-Plot <- ggplot(Biggerdata, aes(x=Strain, y = (Absnorm2))) +
-  geom_boxplot() 
-  # stat_compare_means(label = "p.signif",comparisons = combn(unique(Strainlist),2,simplify = FALSE), method = "t.test") 
-  # geom_jitter(aes(color=Biorep))
-  # facet_wrap(~Plate) +
-  # scale_color_brewer(palette = "Dark2")
 
-ggsave(paste0(Usedir, "/Output/CVplot.png") ,plot = Plot, limitsize = FALSE, device = png())
+# ggsave(paste0(Usedir, "/Output/CVplot.png") ,plot = Plot, limitsize = FALSE, device = png())
 
